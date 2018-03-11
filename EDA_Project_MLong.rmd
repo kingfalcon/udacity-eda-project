@@ -1,0 +1,417 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+An Exploration of Prosper Loan Data by Matthew Long
+========================================================
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(gridExtra)
+library(GGally)
+library(scales)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+# Load the Data
+loans <- read.csv("prosperLoanData.csv")
+
+```
+
+In this report, I will analyze a data set of loan details from the the loan provider Prosper. This data set, last updated March 2014, contains over 100,000 loans with more than 80 variables for each loan. The data set can be downloaded [here](https://www.google.com/url?q=https://s3.amazonaws.com/udacity-hosted-downloads/ud651/prosperLoanData.csv&sa=D&ust=1519089344558000&usg=AFQjCNGvTYnqWqji0_vW42FekVfRBSGviw).
+
+# Univariate Plots Section
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+str(loans)
+summary(loans)
+
+```
+
+As we can see, we have 81 variables of a variety of types, including floats, integers, and dates, among others. Let's dive into univariate analysis of some of these variables to see what we can learn about the data set.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table(loans$LoanStatus) #see the distribution of the data in table form
+
+p1 <- ggplot(aes(x=LoanStatus), data=loans) + geom_bar()
+p2 <- ggplot(aes(x=LoanStatus), data=loans) + geom_bar(aes(y = (..count..)/sum(..count..)))
+grid.arrange(p1,p2,ncol=1)
+
+```
+
+Looking at the `LoanStatus` variable, we see that a plurality of the loans are in the "Current" state, with ~57k loans (~50% of the data set) falling in that category. The next most common state is "Completed" with 38k loans or ~35% of the loans in the data set. Finally, another thing to note is there are very few loans in a "Canceled" state (only 5 out of 114k loans).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table(loans$ProsperScore) #see the distribution of the data in table form
+
+p1 <- ggplot(aes(x=ProsperScore), data=loans) + 
+  geom_bar(width=.9) +
+  scale_x_continuous(breaks=seq(1,12,1))
+p2 <- ggplot(aes(x=ProsperScore), data=loans) + 
+  geom_bar(width=.9, aes(y = (..count..)/sum(..count..))) +
+  scale_x_continuous(breaks=seq(1,12,1))
+
+grid.arrange(p1,p2,ncol=1)
+
+```
+
+We can see that the `ProsperScore` is fairly well distributed with representation across from many of the different scores. The only concern here is that 1456 loans have a score of 11, whereas the variable dictionary asserted that the scale was from 1-10. Let's take a look at a few of the loans with a score of 11 to see if we can see anything odd going on:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(subset(loans,loans$ProsperScore==11))
+```
+
+It's not clear what, if anything, might be wrong with these loans to cause this issue. In order to be save, let's remove them from our data set and look at our plots again:
+
+``` {r echo=TRUE, message=FALSE, warning=FALSE}
+loans <-subset(loans,loans$ProsperScore<=10)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table(loans$ProsperScore) #see the distribution of the data in table form
+
+p1 <- ggplot(aes(x=ProsperScore), data=loans) + 
+  geom_bar(width=.9) +
+  scale_x_continuous(breaks=seq(1,12,1))
+p2 <- ggplot(aes(x=ProsperScore), data=loans) + 
+  geom_bar(width=.9, aes(y = (..count..)/sum(..count..))) +
+  scale_x_continuous(breaks=seq(1,12,1))
+
+grid.arrange(p1,p2,ncol=1)
+
+```
+
+Great. That seems to have taken care of the issue. Next, let's look at what could be considered a negative variable for loan approval: the amount of deliquent dollars at the time the credit profile was pulled (`AmountDelinquent`).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(aes(x=AmountDelinquent), data=loans) + 
+  geom_histogram() +
+  scale_x_continuous()
+```
+
+We can see that the vast majority of the group of data is clustered around zero, but the default binwidths are so large and the length of the x-axis so long that it leads me to believe something might be going wrong. Let's look at a quantile table of this variable to see if we can find anything strange. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+quantile(loans$AmountDelinquent, seq(0,1,.1))
+
+```
+
+We see that, unsurprisngly, 80+% of the dataset had no delinquent dollars at the time the loan was initiated. However, at the very far-right of our distribution, we see that one loan supposedly had $464k in delinquent dollars! Let's look at a more granular distribution of quantiles near the top to see if this is common or an isolated issue.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+quantile(loans$AmountDelinquent, seq(.9,1,.01))
+
+```
+
+Looking at the quantiles, even the 99th percentile is $24k, which, although high, is nowhere near as high as $464k. This leads me to believe that data value is an error, so I will exclude all data points where the delinquent dollar amount exceeds $25k, and replot the data. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+loans <- subset(loans,loans$AmountDelinquent<25000)
+
+ggplot(aes(x=AmountDelinquent), data=loans) + 
+  geom_histogram() +
+  scale_x_continuous()
+
+ggplot(aes(x="All Loans",y=AmountDelinquent), data=loans) + 
+  geom_boxplot() +
+  coord_flip()
+
+```
+
+This looks much better, and fits with our intuition of how the loan process likely should work. Interestingly, the data is so clustered around zero that it is nearly impossible to make out the shape of the boxplot. 
+
+Now let's take a look at the origination amount of the loan (`LoanOriginalAmount`).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x=loans$LoanOriginalAmount), data=loans) + 
+  geom_histogram(binwidth=1000) +
+  scale_x_continuous(breaks=seq(0,max(loans$LoanOriginalAmount),5000))
+
+sort(table(loans$LoanOriginalAmount), decreasing=TRUE)[1:10]
+
+```
+
+Using binwidths of 1000, we can see what the most common approximate loan amounts are. The number one most common loan amount is around \$4k. After the data set contains a number of loans around \$10k, \$15k, \$20k, and \$25k. Let's look at the distribution by loan type to see if anything in particular is contributing to the majority of the clustering around these round numbers: 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x=loans$LoanOriginalAmount), data=loans) + 
+  geom_histogram(binwidth=1000) +
+  scale_x_continuous(breaks=seq(0,max(loans$LoanOriginalAmount),5000)) + 
+  facet_wrap(~loans$ListingCategory,ncol=5)
+
+```
+
+It looks like the most common loans are of the type 1, which corresponds to "Debt Consolidation." Additionally, the peaks of the overall data set correspond with the peaks from this loan type. It's possible that loan applicants approximate their total loan balances and round to the nearest $5k when applying for a debt consolidation loan. 
+
+Next, let's take a look at the credit score of loan recipients. Presently, the data set has two credit score variables: `CreditScoreRangeLower` and `CreditScoreRangeUpper`. For simplicity, let's create a new field, `CreditScoreRangeMid`, that is the average of the two provided fields and plot the result:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+loans$CreditScoreRangeMid <- (loans$CreditScoreRangeLower + loans$CreditScoreRangeUpper)/2.0
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x=CreditScoreRangeMid), data=loans) + 
+  geom_histogram(binwidth=25, breaks=seq(600,900,20)) +
+  scale_x_continuous(breaks=seq(600,900,20))
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x="",y=CreditScoreRangeMid), data=loans) + 
+  geom_boxplot()
+
+```
+
+In the above histogram, we see the data is fairly well distributed with a clustering of credit scores around 680-720. Looking at the box plot, we see that are four positive outliers beginning with credit scores around ~815. 
+
+Finally, I'm curious to learn more about the distribution of loan origination amount divided by monthly income, so let's create a new variable that captures that and plot the results. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+loans$LoanAmtPerMonthIncome <- (loans$LoanOriginalAmount)/(loans$StatedMonthlyIncome)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x=LoanAmtPerMonthIncome), data=subset(loans, loans$LoanAmtPerMonthIncome < 35)) + #subset the data to exclude rows where StatedMonthlyIncome == 0. 
+  geom_histogram(binwidth=1,breaks=seq(0,35,1)) + 
+  xlim(0,35) +
+  scale_x_continuous(breaks=seq(0,35,2))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x="",y=LoanAmtPerMonthIncome), data=subset(loans, loans$LoanAmtPerMonthIncome < 35)) + #subset the data to exclude rows where StatedMonthlyIncome == 0. 
+  geom_boxplot()
+```
+
+From the histogram and boxplot, we see the bulk of the ratios fall between 0 and 3, whereas a ratio above 5 is an outlier. This is unsurprising as I would expect the loan origination amount would not drastically exceed the borrower's ability to pay as demonstrated by his or her monthly income.
+
+Next, let's look at the distribution of employment status, which is a categorical variable:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(aes(x=EmploymentStatus),data=loans) +
+  geom_bar()
+```
+
+It looks like the majority of borrowers are employed, which is unsurprising. The most interesting thing about this variable is that there are options for employed, full-time, and part-time. Without seeing the actual form, it's hard to say why all three of these categories can exist together in the same data set. 
+
+Finally, let's turn our attention to IncomeRange:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+loans$IncomeRange <- factor(loans$IncomeRange, levels=c("$0","$1-24,999","$25,000-49,999","$50,000-74,999","$75,000-99,999","$100,000+","Not employed","Not displayed"), ordered=TRUE) #Need to turn IncomeRange into an ordered factor
+ggplot(aes(x=IncomeRange),data=loans) +
+  geom_bar()
+```
+
+Looking at `IncomeRange`, we see that the range of $50-75k is most common, closely followed by \$25-50k. What's interesting is there are actually more borrows in the income range >\$100k than between \$75-100k. If the data were more granular, we could learn more about the distribution of income ranges above \$100k, but unfortunately we'll have to make do with what we have.
+
+
+# Univariate Analysis
+
+### What is the structure of your dataset?
+After the data cleaning detailed above, my data set has 83k observations across 83 variables. Some of the variables are categorical data (e.g., `IncomeRange`), whereas some of the variables are continuous numerical data (e.g., `AmountDelinquent`).
+
+### What is/are the main feature(s) of interest in your dataset?
+The things I am most interested in are the attributes of the borrow at the time the loan was generated, the purpose of the loan, and how Prosper scored the borrowers.
+
+### What other features in the dataset do you think will help support your investigation into your feature(s) of interest?
+I think the above features will be sufficient in helping me understand the data. That said, I may discover other features that I want to explore as part of my exploratory data analysis.
+
+### Did you create any new variables from existing variables in the dataset?
+Yes, I created two variables. First, I created `CreditScoreRangeMid`, which is the midpoint of the lower- and upper-bound credit score ranges provided in the data set. Secondly, I calculated the ratio of loan origination amount to stated monthly income, or `LoanAmtPerMonthIncome`.
+
+### Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?
+Yes, I did do some data cleaning as part of this exercise. Fist, I ran into some issues with `ProsperScore`, which fell outside the range indicated by the data dictionary. Second, I had to remove a clear outlier from `AmountDelinquent`. Third, while calculating the ratio of loan amount to stated monthly income, I learned that many records had a value of zero for stated monthly income, resulting in a ratio equal to infinity. Finally, when plotting IncomeRange, I learned the factors were not yet ordered, and had to make that change.  
+
+
+# Bivariate Plots Section
+
+First, let's take a look at how `ProsperScore` and `CreditScoreRangeMid` relate:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+loans$ProsperScore <- as.factor(loans$ProsperScore)
+
+ggplot(aes(x=ProsperScore,y=CreditScoreRangeMid),data=loans) +
+  geom_boxplot()
+
+```
+
+Given that `ProsperScore` is a discrete variable, it doesn't make much sense to look at it as a scatterplot. Instead, a series of boxplots provides better visibility into the relationship. As we see, the mean credit score increases as the Prosper score increases.
+
+Next, let's look at how `AmountDelinquent` varies with `ProspectScore` and `CreditScoreRangeMid`:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+loans$CreditScoreRangeMid <- as.factor(loans$CreditScoreRangeMid) #conver to factor
+
+p3 <- ggplot(aes(x=ProsperScore,y=AmountDelinquent),data=loans) +
+  geom_boxplot() +
+  scale_y_log10()
+
+p4 <- ggplot(aes(x=CreditScoreRangeMid, y=AmountDelinquent),data=loans) +
+  geom_boxplot() +
+  scale_y_log10()
+
+grid.arrange(p3,p4,ncol=1)
+
+```
+
+First, we need to conduct a log transformation on `AmountDelinquent`. Focusing on `ProsperScore`, `AmountDelinquent` seems to decrease as `ProsperScore` increases, which makes sense intuitively. Focusing on `CreditScoreRangeMid`, there seems also seems to be a downward trend in `log(AmountDelinquent)` as credit score increases, albeit with some noise in in the "849.5" bucket. 
+
+Next, let's look at how `LoanOriginationAmount` varies with `log(AmountDelinquent)`:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+loans$LoanOriginalAmountCat <- cut(loans$LoanOriginalAmount,breaks=25)
+
+ggplot(aes(x=LoanOriginalAmountCat, y=AmountDelinquent, group=1), data=loans) +
+  scale_y_log10() +
+  geom_point(color="blue", alpha = .05) +
+  geom_line(stat='summary',fun.y=mean)
+
+```
+
+Notably, we need to bucket the `LoanOriginalAmount` into a reasonable number of categories (in this case, 25) in order to solve for the bias/variance trade-off. Following that transformation, we can see there's no discernable linear relationship between the original loan amount and delinquent amount.
+
+To get an overview of the data, we can run `ggpairs()` to see how each of the variables we've explored fit together:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+ggpairs(loans[,c("LoanStatus","ProsperScore","AmountDelinquent","LoanOriginalAmount","CreditScoreRangeMid","LoanAmtPerMonthIncome","EmploymentStatus","IncomeRange")])
+
+```
+
+Reviewing the plots, a few trends stand out. First, `LoanOriginalAmount` tends to increase as `CreditScoreRangeMid` increases. Additionally, `LoanOriginalAmount` increases as `IncomeRange` increases. Finally, we see there is a negative correlation between `LoanOriginalAmount` and `AmountDelinquent`, although the correlation is weak (-0.06).
+
+Let's add a few other continuous variables to see if any other correlations emerge, including `Term`, `BorrowerAPR`, `EstimatedReturn`, `EmploymentStatusDuration`, and `RevolvingCreditBalance`:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+ggpairs(loans[,c("LoanStatus","ProsperScore","AmountDelinquent","LoanOriginalAmount","CreditScoreRangeMid","LoanAmtPerMonthIncome","EmploymentStatus","IncomeRange","Term","BorrowerAPR","EstimatedReturn","EmploymentStatusDuration","RevolvingCreditBalance")])
+
+```
+
+Looking at these results, a few stronger correlations emerge. The strongest correlation is between `EstimatedReturn` and `BorrowerAPR` (0.787). The second strongest correlation is the negative correlation between `BorrowerAPR` and `LoanOriginationAmount` (-0.422). There are also other fairly sizeable correlations between `Term` and `LoanOriginalAmount` (0.344) and `EstimatedReturn` and `LoanOriginalAmount` (-0.277).  
+
+
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. How did the feature(s) of interest vary with other features in the dataset?
+As discussed previously, `LoanOriginalAmount` tends to increase as `CreditScoreRangeMid` increases. Additionally, `LoanOriginalAmount` increases as `IncomeRange` increases.
+
+### Did you observe any interesting relationships between the other features (not the main feature(s) of interest)?
+As discussed previously, I noticed three relationships between features I wasn't particularly focused on. First, `EstimatedReturn` and `BorrowerAPR` have a strong positive correlation (0.787). Second, `BorrowerAPR` and `LoanOriginationAmount` have a moderate negative correlation (-0.422). Additionally, there are also other moderate correlations between `Term` and `LoanOriginalAmount` (0.344) and `EstimatedReturn` and `LoanOriginalAmount` (-0.277).
+
+### What was the strongest relationship you found?
+The strongest relationship I found was between `EstimatedReturn` and `BorrowerAPR`, which a correlation of 0.787. 
+
+# Multivariate Plots Section
+
+First, let's see how the relationship between `LoanOriginalAmount` and `Term` varies with `IncomeRange`: 
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+ggplot(aes(x=Term,y=LoanOriginalAmount),data=loans) +
+  geom_jitter(alpha=.5,aes(color=loans$IncomeRange),width=3) +
+  stat_summary(aes(color=IncomeRange),fun.y=mean, geom="line", size=.75, linetype="solid")
+
+```
+
+Looking at the data, a few things stand out. First, the middle term, 36 months, actually has the lowest minimum original loan amount. Second, borrowers with $100k+ in income are much more likely to borrow on a term of 36 or 60 months. Additionally, the shortest loan, 12 months, is not very popular across income brackets.
+
+Next let's dive into `ProsperScore` vs. `LoanOriginalAmount` cut by `IncomeRange` to understand whether the relationship between the two former variables changes as income changes:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+ggplot(aes(x=ProsperScore,y=LoanOriginalAmount,group=IncomeRange),data=loans) +
+  geom_jitter(alpha=.03, aes(color=IncomeRange),width=.075) +
+  stat_summary(aes(color=IncomeRange),fun.y=mean, geom="line", size=.75, linetype="solid")
+
+```
+
+A few interesting things emerge from this visualization. First, we see that original loan amount seems to have a clear positive correlation with `ProsperScore` for incomes above $50k, and particularly those above $100k. Conversely, for income levels below $50k, there seems to be almost no correlation. It is possible that it is these borrowers' lower income levels that is causing Prosper to lend smaller amounts, irrespective of their quality score. On the other hand, it could be that borrowers with lower incomes simply need to borrow less. Ultimately, this analysis only allows us to comment on correlation, not causation. 
+
+Finally, let's look at how `AmountDelinquent` varies with `LoanOriginalAmount`, cut by `IncomeRange`:
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+ggplot(aes(x=CreditScoreRangeMid,y=BorrowerAPR),data=loans) +
+  geom_line(aes(color=IncomeRange,group=IncomeRange),stat='summary',fun.y=mean) +
+  geom_line(aes(group=1),stat='summary',fun.y=mean,linetype=2)
+
+```
+
+As we can see, `BorrowerAPR` generally decreases as `CreditScoreRangeMid` increases for all income types, but there are a few things of note. First, the APR decreases more slowly for "Not employed" borrowers than other types of borrowers who have a positive income, even as their credit score increases. Perhaps Prosper views the lack of employment as more reflective of risk than credit score and prices the loan accordingly. Secondly, we see that users who report no income do not see much increase in APR as their credit rate increases. That said, we only have 45 data points in our sample for which the borrower's income was $0, so we should refrain from drawing any meaningful conclusions from that data.
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature(s) of interest?
+In this section, I primarily looked at `LoanOriginalAmount`, `IncomeRange`, and `ProsperScore`. Additionally, I looked into `Term` and `BorrowerAPR`. Specifically, controlling for `IncomeRange` seemed to strengthen the relationship between different pairs of variables.
+
+### Were there any interesting or surprising interactions between features?
+First, I was very surprised to see that `LoanOriginalAmount` did not materially increase as `ProsperScore` increased for those who were unemployed or had low incomes. I had expected that the loan amount would increase along with `ProsperScore` despite the borrower's income. Second, it was quite interesting how `IncomeRange` affected the relationship between APR and credit score. In particular, I was surprised to see how much unemployment or a reported income of zero drove up the APR, all else equal.
+
+------
+
+# Final Plots and Summary
+
+### Plot One
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+
+ggplot(aes(x=ProsperScore), data=loans) + 
+  geom_bar(width=.9,fill="#c0392b",alpha=0.75) +
+  scale_x_discrete(breaks=seq(1,12,1)) +
+  scale_y_continuous(labels=comma) +
+  labs(title="Number of loans by ProsperScore",
+       x="ProsperScore",
+       y="Number of loans") +
+  theme_minimal() +
+  theme(text=element_text(size=14)) +
+  geom_hline(yintercept=0, size=1, color="black")
+
+```
+
+### Description One
+There is a somewhat normal distribution of `ProsperScore` with the bulk of the loans receiving scores between 4 and 8. Interestingly, the score least present in the data set is 1. This makes sense as it is unlikely Proper would want to initiate many loans with such a low score. 
+
+### Plot Two
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+
+ggplot(aes(x=ProsperScore,y=as.numeric(as.matrix(CreditScoreRangeMid))),data=loans) +
+  geom_boxplot(fill="#ADD8E6",alpha=0.75) +
+  labs(title="Midpoint of Credit Score Range by Prosper Score",
+     x="ProsperScore",
+     y="Midpoint of Credit Score Range") +
+  theme_minimal() +
+  theme(text=element_text(size=14)) +
+  geom_hline(yintercept=600, size=1, color="black")
+
+```
+
+### Description Two
+The borrower's credit score is clearly associated with higher Prosper loan scores as we see based on the upwards trend in the data. Interestingly, there are more high-score outliers among loans with a lower `ProsperScore`. What this tells me is that it's more common to get a low `ProsperScore` despite a very high credit score than to get a high `ProsperScore` with a very low credit score.  
+
+### Plot Three
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+
+ggplot(aes(x=CreditScoreRangeMid,y=BorrowerAPR),data=loans) +
+  geom_line(aes(color=IncomeRange,group=IncomeRange),stat='summary',fun.y=mean,size=1) +
+  geom_line(aes(group=1),stat='summary',fun.y=mean,linetype=2,size=0.75) +
+  labs(title="Borrower APR by Midpoint of Credit Score Range",
+   x="Midpoint of Credit Score Range",
+   y="Borrower APR") +
+  theme_minimal() +
+  theme(text=element_text(size=14)) +
+  theme(axis.text.x=element_text(size=10,angle = 90, vjust = 0.5)) +
+  geom_hline(yintercept=0, size=1, color="black")
+
+```
+
+### Description Three
+There's a very clear negative relationship between the APR a borrower receives and his or her credit score. What's most interesting about this chart is that the strength of the relationship is lower for some income levels, including most notably `$0` and `Not employed`. This makes sense as borrowers with a high credit score are likely the most trustworthy borrowers and least likely to default. As a result, lenders compete for these borrowers, driving the APR down. 
+
+------
+
+# Reflection
+The Prosper loans data set contains over 100,000 loans with more than 80 variables each. One of the struggles I had is that there were not as many continuous variables of interest as I initially expected. As a result, I had to convert a few variables from factor to numeric and back, including `CreditScoreRangeMid` and `ProsperScore`. Additionally, I faced a few data quality issues. First, the `ProsperScore` field included some values of `11`, which exceeded what was allowed according to the data dictionary. Additionally, `AmountDelinquent` seemed to have a massive outlier, so I was forced to remove that as well. Finally, another major challenge I encountered was the use of `ggpairs()`. Because I included so many variables, the notebook took a long time to execute and knit and the resulting axes and charts were hard to read.
+
+On the flip side, the use of `ggpairs()` did provide evidence of interesting correlations that I explored later on in my analysis, including that of `BorrowerAPR` vs. `CreditScoreRangeMid`. Through looking at this relationship, I was able to clearly see how income range layers on top of credit score to influence Prosper's score of the line. Additionally, I had the opportunity to learn and use new functionality as part of the `ggplot2` package, including labeling axes and plots, using different themes, and rotating my axis labels.
+
+With additional time, regression modeling could be used to determine which input variables have the strongest impact on a pre-determined output variable. Furthermore, a machine learning model could be built to automatically score future loan applications based on the learnings from this data set.
